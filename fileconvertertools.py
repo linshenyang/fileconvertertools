@@ -6,6 +6,7 @@ from PIL import Image
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfgen import canvas
 import docx2pdf  # 用于 Word 转 PDF
+import win32com.client  # 用于 PPT 转 PDF
 
 # 配置日志记录
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -213,27 +214,33 @@ class ImageToPDFConverter:
                 logging.error(f"生成 PDF 文件时出错: {e}")
 
 
-class WordToPDFConverter:
+class OfficeToPDFConverter:
     def __init__(self, tab):
         self.tab = tab
 
-        # 创建变量存储选择的 Word 文件路径和输出文件夹路径
-        self.word_paths_var = StringVar()
+        # 创建变量存储选择的文件路径和输出文件夹路径
+        self.file_paths_var = StringVar()
         self.output_folder_var = StringVar()
+        self.selected_option = StringVar()
+        self.selected_option.set("word")  # 默认选择 Word 转 PDF
 
         # 创建标签
-        self.status_label = Label(tab, text="请选择 Word 文件", wraplength=380, bg=BG_COLOR, fg=TEXT_COLOR,
+        self.status_label = Label(tab, text="请选择转换类型和文件", wraplength=380, bg=BG_COLOR, fg=TEXT_COLOR,
                                   font=("Arial", 12))
         self.status_label.pack(pady=10)
+
+        # 创建 Radiobutton 选项
+        Radiobutton(tab, text="Word转PDF", variable=self.selected_option, value="word", bg=BG_COLOR).pack()
+        Radiobutton(tab, text="PPT转PDF", variable=self.selected_option, value="ppt", bg=BG_COLOR).pack()
 
         # 创建左侧框架用于放置按钮
         left_frame = Frame(tab, bg=FRAME_BG_COLOR, bd=2, relief="groove")
         left_frame.pack(side=LEFT, padx=10, pady=10, fill=Y)
 
-        # 创建选择 Word 文件按钮
-        select_button = Button(left_frame, text="选择 Word 文件", command=self.select_word_files, bg=BUTTON_COLOR,
-                               fg=TEXT_COLOR, font=("Arial", 10))
-        select_button.pack(pady=5, padx=10, fill=BOTH)
+        # 创建选择文件按钮
+        self.select_file_button = Button(left_frame, text="选择文件", command=self.select_files, bg=BUTTON_COLOR,
+                                         fg=TEXT_COLOR, font=("Arial", 10))
+        self.select_file_button.pack(pady=5, padx=10, fill=BOTH)
 
         # 创建选择输出文件夹按钮
         select_folder_button = Button(left_frame, text="选择输出文件夹", command=self.select_output_folder,
@@ -249,25 +256,29 @@ class WordToPDFConverter:
         right_frame = Frame(tab, bg=FRAME_BG_COLOR, bd=2, relief="groove")
         right_frame.pack(side=RIGHT, padx=10, pady=10, fill=BOTH, expand=True)
 
-        # 创建 Listbox 用于展示 Word 文件列表
-        self.word_listbox = Listbox(right_frame, bg=BG_COLOR, fg=TEXT_COLOR, font=("Arial", 10))
-        self.word_listbox.pack(side=LEFT, fill=BOTH, expand=True, padx=5, pady=5)
+        # 创建 Listbox 用于展示文件列表
+        self.file_listbox = Listbox(right_frame, bg=BG_COLOR, fg=TEXT_COLOR, font=("Arial", 10))
+        self.file_listbox.pack(side=LEFT, fill=BOTH, expand=True, padx=5, pady=5)
 
         # 创建滚动条
-        scrollbar = Scrollbar(right_frame, command=self.word_listbox.yview)
+        scrollbar = Scrollbar(right_frame, command=self.file_listbox.yview)
         scrollbar.pack(side=RIGHT, fill=Y)
-        self.word_listbox.config(yscrollcommand=scrollbar.set)
+        self.file_listbox.config(yscrollcommand=scrollbar.set)
 
-    def select_word_files(self):
-        # 打开文件选择对话框，允许多选 Word 文件
-        word_paths = filedialog.askopenfilenames(filetypes=[("Word files", "*.docx;*.doc")])
-        if word_paths:
-            for path in word_paths:
-                self.word_listbox.insert(END, path)
-            self.word_paths_var.set(",".join(word_paths))
-            self.status_label.config(text=f"已选择 {len(word_paths)} 个 Word 文件")
+    def select_files(self):
+        if self.selected_option.get() == "word":
+            # 打开文件选择对话框，允许多选 Word 文件
+            file_paths = filedialog.askopenfilenames(filetypes=[("Word files", "*.docx;*.doc")])
         else:
-            self.status_label.config(text="未选择任何 Word 文件")
+            # 打开文件选择对话框，允许多选 PPT 文件
+            file_paths = filedialog.askopenfilenames(filetypes=[("PPT files", "*.ppt;*.pptx")])
+        if file_paths:
+            for path in file_paths:
+                self.file_listbox.insert(END, path)
+            self.file_paths_var.set(",".join(file_paths))
+            self.status_label.config(text=f"已选择 {len(file_paths)} 个文件")
+        else:
+            self.status_label.config(text="未选择任何文件")
 
     def select_output_folder(self):
         # 打开文件夹选择对话框
@@ -279,26 +290,42 @@ class WordToPDFConverter:
             self.status_label.config(text="未选择输出文件夹")
 
     def generate_pdf(self):
-        selected_paths = list(self.word_listbox.get(0, END))
-        if not selected_paths:
-            messagebox.showwarning("警告", "请先选择 Word 文件")
-            return
-
         folder_path = self.output_folder_var.get()
         if not folder_path:
             messagebox.showwarning("警告", "请先选择输出文件夹")
             return
 
-        for word_path in selected_paths:
-            try:
-                pdf_filename = os.path.splitext(os.path.basename(word_path))[0] + ".pdf"
-                pdf_path = os.path.join(folder_path, pdf_filename)
-                docx2pdf.convert(word_path, pdf_path)
-                messagebox.showinfo("成功", f"PDF 文件已生成: {pdf_path}")
-                self.status_label.config(text=f"PDF 文件已生成: {pdf_path}")
-            except Exception as e:
-                messagebox.showerror("错误", f"生成 PDF 文件时出错: {e}")
-                logging.error(f"生成 PDF 文件时出错: {e}")
+        selected_paths = list(self.file_listbox.get(0, END))
+        if not selected_paths:
+            messagebox.showwarning("警告", "请先选择文件")
+            return
+
+        if self.selected_option.get() == "word":
+            for word_path in selected_paths:
+                try:
+                    pdf_filename = os.path.splitext(os.path.basename(word_path))[0] + ".pdf"
+                    pdf_path = os.path.join(folder_path, pdf_filename)
+                    docx2pdf.convert(word_path, pdf_path)
+                    messagebox.showinfo("成功", f"Word 转 PDF 文件已生成: {pdf_path}")
+                    self.status_label.config(text=f"Word 转 PDF 文件已生成: {pdf_path}")
+                except Exception as e:
+                    messagebox.showerror("错误", f"生成 Word PDF 文件时出错: {e}")
+                    logging.error(f"生成 Word PDF 文件时出错: {e}")
+        else:
+            powerpoint = win32com.client.Dispatch("PowerPoint.Application")
+            for ppt_path in selected_paths:
+                try:
+                    pdf_filename = os.path.splitext(os.path.basename(ppt_path))[0] + ".pdf"
+                    pdf_path = os.path.join(folder_path, pdf_filename)
+                    presentation = powerpoint.Presentations.Open(ppt_path)
+                    presentation.SaveAs(pdf_path, 32)
+                    presentation.Close()
+                    messagebox.showinfo("成功", f"PPT 转 PDF 文件已生成: {pdf_path}")
+                    self.status_label.config(text=f"PPT 转 PDF 文件已生成: {pdf_path}")
+                except Exception as e:
+                    messagebox.showerror("错误", f"生成 PPT PDF 文件时出错: {e}")
+                    logging.error(f"生成 PPT PDF 文件时出错: {e}")
+            powerpoint.Quit()
 
 
 def show_about():
@@ -352,9 +379,9 @@ if __name__ == "__main__":
     notebook.add(pdf_tab, text="图片转 PDF")
     ImageToPDFConverter(pdf_tab)
 
-    # 创建 Word 转 PDF 标签页
-    word_tab = Frame(notebook, bg=BG_COLOR)
-    notebook.add(word_tab, text="Word 转 PDF")
-    WordToPDFConverter(word_tab)
+    # 创建 Office 转 PDF 标签页
+    office_tab = Frame(notebook, bg=BG_COLOR)
+    notebook.add(office_tab, text="Office文档转换")
+    OfficeToPDFConverter(office_tab)
 
     root.mainloop()
