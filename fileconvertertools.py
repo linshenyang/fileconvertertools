@@ -7,6 +7,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfgen import canvas
 import docx2pdf  # 用于 Word 转 PDF
 import win32com.client  # 用于 PPT 转 PDF
+from pdftofileclass import PDFToFileConverter
 
 # 配置日志记录
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -214,6 +215,102 @@ class ImageToPDFConverter:
                 logging.error(f"生成 PDF 文件时出错: {e}")
 
 
+class ExcelToPDFConverter:
+    def __init__(self, tab):
+        self.tab = tab
+
+        # 创建变量存储选择的 Excel 文件路径和输出文件夹路径
+        self.file_paths_var = StringVar()
+        self.output_folder_var = StringVar()
+
+        # 创建标签
+        self.status_label = Label(tab, text="请选择 Excel 文件", wraplength=380, bg=BG_COLOR, fg=TEXT_COLOR,
+                                  font=("Arial", 12))
+        self.status_label.pack(pady=10)
+
+        # 创建左侧框架用于放置按钮
+        left_frame = Frame(tab, bg=FRAME_BG_COLOR, bd=2, relief="groove")
+        left_frame.pack(side=LEFT, padx=10, pady=10, fill=Y)
+
+        # 创建选择 Excel 文件按钮
+        select_file_button = Button(left_frame, text="选择 Excel 文件", command=self.select_files, bg=BUTTON_COLOR,
+                                    fg=TEXT_COLOR, font=("Arial", 10))
+        select_file_button.pack(pady=5, padx=10, fill=BOTH)
+
+        # 创建选择输出文件夹按钮
+        select_folder_button = Button(left_frame, text="选择输出文件夹", command=self.select_output_folder,
+                                      bg=BUTTON_COLOR, fg=TEXT_COLOR, font=("Arial", 10))
+        select_folder_button.pack(pady=5, padx=10, fill=BOTH)
+
+        # 创建生成 PDF 按钮
+        generate_button = Button(left_frame, text="生成 PDF", command=self.generate_pdf, bg=BUTTON_COLOR,
+                                 fg=TEXT_COLOR, font=("Arial", 10))
+        generate_button.pack(pady=15, padx=10, fill=BOTH)
+
+        # 创建右侧框架用于放置 Listbox
+        right_frame = Frame(tab, bg=FRAME_BG_COLOR, bd=2, relief="groove")
+        right_frame.pack(side=RIGHT, padx=10, pady=10, fill=BOTH, expand=True)
+
+        # 创建 Listbox 用于展示 Excel 文件列表
+        self.file_listbox = Listbox(right_frame, bg=BG_COLOR, fg=TEXT_COLOR, font=("Arial", 10))
+        self.file_listbox.pack(side=LEFT, fill=BOTH, expand=True, padx=5, pady=5)
+
+        # 创建滚动条
+        scrollbar = Scrollbar(right_frame, command=self.file_listbox.yview)
+        scrollbar.pack(side=RIGHT, fill=Y)
+        self.file_listbox.config(yscrollcommand=scrollbar.set)
+
+    def select_files(self):
+        # 打开文件选择对话框，允许多选 Excel 文件
+        file_paths = filedialog.askopenfilenames(filetypes=[("Excel files", "*.xlsx;*.xls")])
+        if file_paths:
+            for path in file_paths:
+                self.file_listbox.insert(END, path)
+            self.file_paths_var.set(",".join(file_paths))
+            self.status_label.config(text=f"已选择 {len(file_paths)} 个 Excel 文件")
+        else:
+            self.status_label.config(text="未选择任何 Excel 文件")
+
+    def select_output_folder(self):
+        # 打开文件夹选择对话框
+        folder_path = filedialog.askdirectory()
+        if folder_path:
+            self.output_folder_var.set(folder_path)
+            self.status_label.config(text=f"输出文件夹已选择: {folder_path}")
+        else:
+            self.status_label.config(text="未选择输出文件夹")
+
+    def generate_pdf(self):
+        folder_path = self.output_folder_var.get()
+        if not folder_path:
+            messagebox.showwarning("警告", "请先选择输出文件夹")
+            return
+
+        selected_paths = list(self.file_listbox.get(0, END))
+        if not selected_paths:
+            messagebox.showwarning("警告", "请先选择 Excel 文件")
+            return
+
+        import win32com.client
+        excel = win32com.client.Dispatch("Excel.Application")
+        excel.Visible = False
+
+        for excel_path in selected_paths:
+            try:
+                workbook = excel.Workbooks.Open(excel_path)
+                pdf_filename = os.path.splitext(os.path.basename(excel_path))[0] + ".pdf"
+                pdf_path = os.path.join(folder_path, pdf_filename)
+                workbook.ExportAsFixedFormat(0, pdf_path)
+                workbook.Close()
+                messagebox.showinfo("成功", f"Excel 转 PDF 文件已生成: {pdf_path}")
+                self.status_label.config(text=f"Excel 转 PDF 文件已生成: {pdf_path}")
+            except Exception as e:
+                messagebox.showerror("错误", f"生成 Excel PDF 文件时出错: {e}")
+                logging.error(f"生成 Excel PDF 文件时出错: {e}")
+
+        excel.Quit()
+
+
 class OfficeToPDFConverter:
     def __init__(self, tab):
         self.tab = tab
@@ -232,6 +329,8 @@ class OfficeToPDFConverter:
         # 创建 Radiobutton 选项
         Radiobutton(tab, text="Word转PDF", variable=self.selected_option, value="word", bg=BG_COLOR).pack()
         Radiobutton(tab, text="PPT转PDF", variable=self.selected_option, value="ppt", bg=BG_COLOR).pack()
+        # 新增 Excel 转 PDF 选项
+        Radiobutton(tab, text="Excel转PDF", variable=self.selected_option, value="excel", bg=BG_COLOR).pack()
 
         # 创建左侧框架用于放置按钮
         left_frame = Frame(tab, bg=FRAME_BG_COLOR, bd=2, relief="groove")
@@ -269,9 +368,12 @@ class OfficeToPDFConverter:
         if self.selected_option.get() == "word":
             # 打开文件选择对话框，允许多选 Word 文件
             file_paths = filedialog.askopenfilenames(filetypes=[("Word files", "*.docx;*.doc")])
-        else:
+        elif self.selected_option.get() == "ppt":
             # 打开文件选择对话框，允许多选 PPT 文件
             file_paths = filedialog.askopenfilenames(filetypes=[("PPT files", "*.ppt;*.pptx")])
+        elif self.selected_option.get() == "excel":
+            # 打开文件选择对话框，允许多选 Excel 文件
+            file_paths = filedialog.askopenfilenames(filetypes=[("Excel files", "*.xlsx;*.xls")])
         if file_paths:
             for path in file_paths:
                 self.file_listbox.insert(END, path)
@@ -311,7 +413,7 @@ class OfficeToPDFConverter:
                 except Exception as e:
                     messagebox.showerror("错误", f"生成 Word PDF 文件时出错: {e}")
                     logging.error(f"生成 Word PDF 文件时出错: {e}")
-        else:
+        elif self.selected_option.get() == "ppt":
             powerpoint = win32com.client.Dispatch("PowerPoint.Application")
             for ppt_path in selected_paths:
                 try:
@@ -326,7 +428,96 @@ class OfficeToPDFConverter:
                     messagebox.showerror("错误", f"生成 PPT PDF 文件时出错: {e}")
                     logging.error(f"生成 PPT PDF 文件时出错: {e}")
             powerpoint.Quit()
+        elif self.selected_option.get() == "excel":
+            import win32com.client
+            excel = win32com.client.Dispatch("Excel.Application")
+            excel.Visible = False
+            for excel_path in selected_paths:
+                try:
+                    workbook = excel.Workbooks.Open(excel_path)
+                    pdf_filename = os.path.splitext(os.path.basename(excel_path))[0] + ".pdf"
+                    pdf_path = os.path.join(folder_path, pdf_filename)
+                    workbook.ExportAsFixedFormat(0, pdf_path)
+                    workbook.Close()
+                    messagebox.showinfo("成功", f"Excel 转 PDF 文件已生成: {pdf_path}")
+                    self.status_label.config(text=f"Excel 转 PDF 文件已生成: {pdf_path}")
+                except Exception as e:
+                    messagebox.showerror("错误", f"生成 Excel PDF 文件时出错: {e}")
+                    logging.error(f"生成 Excel PDF 文件时出错: {e}")
+            excel.Quit()
 
+    def select_files(self):
+        if self.selected_option.get() == "word":
+            # 打开文件选择对话框，允许多选 Word 文件
+            file_paths = filedialog.askopenfilenames(filetypes=[("Word files", "*.docx;*.doc")])
+        elif self.selected_option.get() == "ppt":
+            # 打开文件选择对话框，允许多选 PPT 文件
+            file_paths = filedialog.askopenfilenames(filetypes=[("PPT files", "*.ppt;*.pptx")])
+        elif self.selected_option.get() == "excel":
+            # 打开文件选择对话框，允许多选 Excel 文件
+            file_paths = filedialog.askopenfilenames(filetypes=[("Excel files", "*.xlsx;*.xls")])
+        if file_paths:
+            for path in file_paths:
+                self.file_listbox.insert(END, path)
+            self.file_paths_var.set(",".join(file_paths))
+            self.status_label.config(text=f"已选择 {len(file_paths)} 个文件")
+        else:
+            self.status_label.config(text="未选择任何文件")
+
+    def generate_pdf(self):
+        folder_path = self.output_folder_var.get()
+        if not folder_path:
+            messagebox.showwarning("警告", "请先选择输出文件夹")
+            return
+
+        selected_paths = list(self.file_listbox.get(0, END))
+        if not selected_paths:
+            messagebox.showwarning("警告", "请先选择文件")
+            return
+
+        if self.selected_option.get() == "word":
+            for word_path in selected_paths:
+                try:
+                    pdf_filename = os.path.splitext(os.path.basename(word_path))[0] + ".pdf"
+                    pdf_path = os.path.join(folder_path, pdf_filename)
+                    docx2pdf.convert(word_path, pdf_path)
+                    messagebox.showinfo("成功", f"Word 转 PDF 文件已生成: {pdf_path}")
+                    self.status_label.config(text=f"Word 转 PDF 文件已生成: {pdf_path}")
+                except Exception as e:
+                    messagebox.showerror("错误", f"生成 Word PDF 文件时出错: {e}")
+                    logging.error(f"生成 Word PDF 文件时出错: {e}")
+        elif self.selected_option.get() == "ppt":
+            powerpoint = win32com.client.Dispatch("PowerPoint.Application")
+            for ppt_path in selected_paths:
+                try:
+                    pdf_filename = os.path.splitext(os.path.basename(ppt_path))[0] + ".pdf"
+                    pdf_path = os.path.join(folder_path, pdf_filename)
+                    presentation = powerpoint.Presentations.Open(ppt_path)
+                    presentation.SaveAs(pdf_path, 32)
+                    presentation.Close()
+                    messagebox.showinfo("成功", f"PPT 转 PDF 文件已生成: {pdf_path}")
+                    self.status_label.config(text=f"PPT 转 PDF 文件已生成: {pdf_path}")
+                except Exception as e:
+                    messagebox.showerror("错误", f"生成 PPT PDF 文件时出错: {e}")
+                    logging.error(f"生成 PPT PDF 文件时出错: {e}")
+            powerpoint.Quit()
+        elif self.selected_option.get() == "excel":
+            import win32com.client
+            excel = win32com.client.Dispatch("Excel.Application")
+            excel.Visible = False
+            for excel_path in selected_paths:
+                try:
+                    workbook = excel.Workbooks.Open(excel_path)
+                    pdf_filename = os.path.splitext(os.path.basename(excel_path))[0] + ".pdf"
+                    pdf_path = os.path.join(folder_path, pdf_filename)
+                    workbook.ExportAsFixedFormat(0, pdf_path)
+                    workbook.Close()
+                    messagebox.showinfo("成功", f"Excel 转 PDF 文件已生成: {pdf_path}")
+                    self.status_label.config(text=f"Excel 转 PDF 文件已生成: {pdf_path}")
+                except Exception as e:
+                    messagebox.showerror("错误", f"生成 Excel PDF 文件时出错: {e}")
+                    logging.error(f"生成 Excel PDF 文件时出错: {e}")
+            excel.Quit()
 
 def show_about():
     about_window = Toplevel(root)
@@ -359,9 +550,25 @@ def show_about():
 
 if __name__ == "__main__":
     root = Tk()
-    root.title("文件转换工具")
-    root.geometry("700x400")
+    root.title("文件转换工具 - 作者：牛逼神仙")
+    root.geometry("800x600")
     root.configure(bg=BG_COLOR)
+
+    # 获取屏幕宽度和高度
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+
+    # 获取窗口宽度和高度
+    window_width = 800
+    window_height = 600
+
+    # 计算窗口在屏幕上居中的坐标
+    x = (screen_width - window_width) // 2
+    y = (screen_height - window_height) // 2
+
+    # 设置窗口的几何位置，使其居中
+    root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
 
     # 创建菜单栏
     menubar = Menu(root)
@@ -383,5 +590,10 @@ if __name__ == "__main__":
     office_tab = Frame(notebook, bg=BG_COLOR)
     notebook.add(office_tab, text="Office文档转换")
     OfficeToPDFConverter(office_tab)
+
+    # 创建 PDF 转其他格式标签页
+    pdf_to_file_tab = Frame(notebook, bg="#f0f0f0")
+    notebook.add(pdf_to_file_tab, text="PDF转换")
+    PDFToFileConverter(pdf_to_file_tab)
 
     root.mainloop()
